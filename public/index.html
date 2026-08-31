@@ -1,0 +1,318 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>APEX Instant Sharing</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#128194;</text></svg>">
+<link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+<div id="toasts" class="toasts" role="status" aria-live="polite"></div>
+
+<!-- ------------------------------------------------------------- sign-in -->
+<main id="view-auth" class="auth" hidden>
+  <div class="auth-card">
+    <div class="brand">
+      <span class="brand-mark">A</span>
+      <div>
+        <h1 id="auth-app-name">APEX Instant Sharing</h1>
+        <p class="muted">Sign in to drop and collect files</p>
+      </div>
+    </div>
+
+    <div class="tabs" role="tablist">
+      <button class="tab is-active" data-authtab="login" role="tab">Sign in</button>
+      <button class="tab" data-authtab="register" role="tab" id="tab-register">Create account</button>
+    </div>
+
+    <form id="form-login" class="stack" autocomplete="on">
+      <label>Email<input type="email" name="email" required autocomplete="username" placeholder="you@example.com"></label>
+      <label>Password<input type="password" name="password" required autocomplete="current-password"></label>
+      <button class="btn primary" type="submit">Sign in</button>
+      <p class="error" data-error hidden></p>
+    </form>
+
+    <form id="form-register" class="stack" hidden autocomplete="on">
+      <label>Full name<input type="text" name="displayName" required minlength="2" maxlength="80" autocomplete="name"></label>
+      <label>Email<input type="email" name="email" required autocomplete="username"></label>
+      <label>Password<input type="password" name="password" required autocomplete="new-password">
+        <small class="muted" id="pw-hint">At least 12 characters.</small>
+      </label>
+      <button class="btn primary" type="submit">Create account</button>
+      <p class="error" data-error hidden></p>
+    </form>
+    <p class="muted small" id="registration-off" hidden>Self-registration is disabled. Ask an administrator to create your account.</p>
+  </div>
+</main>
+
+<!-- ----------------------------------------------------- MFA challenge -->
+<main id="view-mfa" class="auth" hidden>
+  <div class="auth-card">
+    <h1>Two-factor verification</h1>
+    <p class="muted">Enter the 6-digit code from your authenticator app.</p>
+    <form id="form-mfa" class="stack">
+      <label>Authentication code
+        <input type="text" name="token" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9 ]*"
+               maxlength="7" required placeholder="123456" class="code-input">
+      </label>
+      <button class="btn primary" type="submit">Verify</button>
+      <p class="error" data-error hidden></p>
+    </form>
+    <details class="backup-details">
+      <summary>Lost your device? Use a backup code</summary>
+      <form id="form-backup" class="stack">
+        <label>Backup code<input type="text" name="backupCode" placeholder="ABCD-EFGH-JKLM" maxlength="20" required></label>
+        <button class="btn" type="submit">Use backup code</button>
+        <p class="error" data-error hidden></p>
+      </form>
+    </details>
+    <button class="linkish" data-action="signout">Cancel and sign out</button>
+  </div>
+</main>
+
+<!-- --------------------------------------------------- MFA enrolment -->
+<main id="view-enrol" class="auth" hidden>
+  <div class="auth-card wide">
+    <h1>Set up two-factor authentication</h1>
+    <p class="muted">This account needs an authenticator app before it can share files.</p>
+    <ol class="enrol">
+      <li>
+        <strong>Scan this QR code</strong> with Google Authenticator, 1Password, Aegis or similar.
+        <div class="qr-wrap"><img id="enrol-qr" alt="Enrolment QR code" width="240" height="240"></div>
+        <p class="muted small">Or enter the key by hand: <code id="enrol-secret" class="secret"></code></p>
+      </li>
+      <li>
+        <strong>Enter the code it shows</strong>
+        <form id="form-enrol" class="stack inline-form">
+          <input type="text" name="token" inputmode="numeric" maxlength="7" required placeholder="123456" class="code-input">
+          <button class="btn primary" type="submit">Confirm</button>
+        </form>
+        <p class="error" data-error hidden></p>
+      </li>
+    </ol>
+    <button class="linkish" data-action="signout">Sign out</button>
+  </div>
+</main>
+
+<!-- ------------------------------------------------------ backup codes -->
+<main id="view-codes" class="auth" hidden>
+  <div class="auth-card wide">
+    <h1>Save your backup codes</h1>
+    <p class="muted">Each code works once, if you lose your authenticator. Store them somewhere safe - they are not shown again.</p>
+    <ul id="codes-list" class="codes"></ul>
+    <div class="row">
+      <button class="btn" id="codes-copy">Copy codes</button>
+      <button class="btn" id="codes-download">Download .txt</button>
+      <button class="btn primary" id="codes-done">I have saved them</button>
+    </div>
+  </div>
+</main>
+
+<!-- ---------------------------------------------------------- main app -->
+<div id="view-app" hidden>
+  <header class="topbar">
+    <div class="brand small">
+      <span class="brand-mark">A</span>
+      <strong id="app-name">APEX Instant Sharing</strong>
+    </div>
+    <nav class="nav" id="main-nav">
+      <button class="navlink is-active" data-view="files">Files</button>
+      <button class="navlink" data-view="upload">Upload</button>
+      <button class="navlink" data-view="activity">My activity</button>
+      <button class="navlink" data-view="account">Account</button>
+      <button class="navlink admin-only" data-view="admin-users" hidden>Users</button>
+      <button class="navlink admin-only" data-view="admin-audit" hidden>Audit</button>
+    </nav>
+    <div class="userchip">
+      <span id="user-name"></span>
+      <span class="badge" id="user-role" hidden>admin</span>
+      <button class="btn ghost" data-action="signout">Sign out</button>
+    </div>
+  </header>
+
+  <main class="content">
+    <!-- Files -->
+    <section id="panel-files" class="panel">
+      <div class="panel-head">
+        <div class="scopes" id="file-scopes">
+          <button class="chip is-active" data-scope="all">Everything I can see</button>
+          <button class="chip" data-scope="mine">My files</button>
+          <button class="chip" data-scope="shared">Shared with me</button>
+          <button class="chip" data-scope="everyone">Shared with everyone</button>
+          <button class="chip admin-only" data-scope="admin" hidden>All files (admin)</button>
+        </div>
+        <input type="search" id="file-search" placeholder="Search files, people, notes..." class="search">
+      </div>
+      <div id="file-list" class="cards"></div>
+      <div class="pager"><button class="btn" id="files-more" hidden>Load more</button></div>
+    </section>
+
+    <!-- Upload -->
+    <section id="panel-upload" class="panel" hidden>
+      <form id="form-upload" class="upload-form">
+        <div class="dropzone" id="dropzone" tabindex="0" role="button" aria-label="Choose files to upload">
+          <p><strong>Drop files here</strong> or click to choose</p>
+          <p class="muted small" id="upload-limits"></p>
+          <input type="file" id="file-input" multiple hidden>
+        </div>
+        <ul id="upload-queue" class="queue"></ul>
+
+        <div class="grid2">
+          <label>Note for recipients (optional)
+            <input type="text" name="description" maxlength="500" placeholder="What is this?">
+          </label>
+          <label>Access expires (optional)
+            <input type="datetime-local" name="expiresAt">
+          </label>
+        </div>
+
+        <fieldset class="share-picker">
+          <legend>Who can get it?</legend>
+          <label class="radio"><input type="radio" name="visibility" value="private" checked> Only the people I pick</label>
+          <label class="radio"><input type="radio" name="visibility" value="everyone"> Everyone with an account</label>
+          <div id="recipient-box">
+            <input type="search" id="recipient-search" class="search" placeholder="Search people by name or email">
+            <div id="recipient-results" class="people"></div>
+            <div id="recipient-chosen" class="chips"></div>
+          </div>
+        </fieldset>
+
+        <div class="row">
+          <button class="btn primary" type="submit" id="upload-submit">Upload</button>
+          <progress id="upload-progress" max="100" value="0" hidden></progress>
+        </div>
+        <p class="error" data-error hidden></p>
+      </form>
+    </section>
+
+    <!-- Activity -->
+    <section id="panel-activity" class="panel" hidden>
+      <h2>My activity</h2>
+      <p class="muted">Every action recorded against your account.</p>
+      <div class="tablewrap"><table class="table" id="activity-table"><thead>
+        <tr><th>When</th><th>Action</th><th>Result</th><th>Object</th><th>From</th></tr></thead><tbody></tbody></table></div>
+    </section>
+
+    <!-- Account -->
+    <section id="panel-account" class="panel" hidden>
+      <div class="grid2">
+        <div class="card">
+          <h2>Profile</h2>
+          <form id="form-profile" class="stack">
+            <label>Display name<input type="text" name="displayName" required minlength="2" maxlength="80"></label>
+            <p class="muted small" id="account-meta"></p>
+            <button class="btn" type="submit">Save</button>
+            <p class="error" data-error hidden></p>
+          </form>
+        </div>
+        <div class="card">
+          <h2>Password</h2>
+          <form id="form-password" class="stack">
+            <label>Current password<input type="password" name="currentPassword" required autocomplete="current-password"></label>
+            <label>New password<input type="password" name="newPassword" required autocomplete="new-password"></label>
+            <label class="mfa-only">Authenticator code<input type="text" name="token" inputmode="numeric" maxlength="7" placeholder="123456"></label>
+            <button class="btn" type="submit">Change password</button>
+            <p class="muted small">Changing your password signs out every other device.</p>
+            <p class="error" data-error hidden></p>
+          </form>
+        </div>
+        <div class="card">
+          <h2>Two-factor authentication</h2>
+          <p id="mfa-status" class="muted"></p>
+          <form id="form-codes" class="stack">
+            <label>Password<input type="password" name="password" required autocomplete="current-password"></label>
+            <label>Authenticator code<input type="text" name="token" inputmode="numeric" maxlength="7" required placeholder="123456"></label>
+            <button class="btn" type="submit">Generate new backup codes</button>
+            <p class="muted small">The codes you have now stop working.</p>
+            <p class="error" data-error hidden></p>
+          </form>
+        </div>
+      </div>
+    </section>
+
+    <!-- Admin: users -->
+    <section id="panel-admin-users" class="panel" hidden>
+      <div class="panel-head">
+        <h2>Users</h2>
+        <input type="search" id="user-search" class="search" placeholder="Search users">
+      </div>
+      <div id="admin-stats" class="stats"></div>
+      <div class="tablewrap"><table class="table" id="users-table"><thead>
+        <tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>2FA</th><th>Last sign-in</th><th>Actions</th></tr>
+      </thead><tbody></tbody></table></div>
+      <details class="card">
+        <summary><strong>Create an account</strong></summary>
+        <form id="form-newuser" class="stack">
+          <div class="grid2">
+            <label>Full name<input type="text" name="displayName" required minlength="2"></label>
+            <label>Email<input type="email" name="email" required></label>
+            <label>Temporary password<input type="text" name="password" required minlength="12"></label>
+            <label>Role<select name="role"><option value="user">User</option><option value="admin">Administrator</option></select></label>
+          </div>
+          <button class="btn primary" type="submit">Create account</button>
+          <p class="muted small">The person enrols their own authenticator the first time they sign in.</p>
+          <p class="error" data-error hidden></p>
+        </form>
+      </details>
+    </section>
+
+    <!-- Admin: audit -->
+    <section id="panel-admin-audit" class="panel" hidden>
+      <div class="panel-head">
+        <h2>Audit trail</h2>
+        <div class="row">
+          <button class="btn" id="audit-verify">Verify integrity</button>
+          <a class="btn" id="audit-export" href="/api/admin/audit.csv">Export CSV</a>
+        </div>
+      </div>
+      <div class="filters">
+        <select id="audit-action"><option value="">All actions</option></select>
+        <select id="audit-outcome">
+          <option value="">Any result</option><option value="success">Success</option>
+          <option value="failure">Failure</option><option value="denied">Denied</option>
+        </select>
+        <input type="search" id="audit-actor" placeholder="Actor email">
+        <input type="search" id="audit-q" placeholder="Search details, file, IP">
+        <input type="date" id="audit-from"><input type="date" id="audit-to">
+      </div>
+      <p id="audit-integrity" class="integrity"></p>
+      <div class="tablewrap"><table class="table" id="audit-table"><thead>
+        <tr><th>When</th><th>Actor</th><th>Action</th><th>Result</th><th>Object</th><th>IP</th><th>Details</th></tr>
+      </thead><tbody></tbody></table></div>
+      <div class="pager"><button class="btn" id="audit-more" hidden>Load more</button></div>
+    </section>
+  </main>
+</div>
+
+<!-- ------------------------------------------------------- share dialog -->
+<dialog id="share-dialog" class="dialog">
+  <form method="dialog" class="dialog-inner">
+    <h2 id="share-title">Share file</h2>
+    <p class="muted small" id="share-file-meta"></p>
+
+    <label class="switch">
+      <input type="checkbox" id="share-everyone"> Everyone with an account can download this
+    </label>
+
+    <div class="stack">
+      <input type="search" id="share-search" class="search" placeholder="Search people by name or email">
+      <div id="share-results" class="people"></div>
+      <h3 class="small">Shared with</h3>
+      <ul id="share-current" class="sharelist"></ul>
+      <label>Access expires (optional)<input type="datetime-local" id="share-expiry"></label>
+    </div>
+
+    <h3 class="small">Recent activity on this file</h3>
+    <div class="tablewrap short"><table class="table" id="share-activity"><tbody></tbody></table></div>
+
+    <div class="row end">
+      <button class="btn" value="close">Close</button>
+    </div>
+  </form>
+</dialog>
+
+<script type="module" src="/js/app.js"></script>
+</body>
+</html>
