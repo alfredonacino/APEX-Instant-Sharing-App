@@ -10,6 +10,10 @@ export function prepareEnv(overrides = {}) {
     NODE_ENV: 'test',
     DATA_DIR: path.join(root, 'data'),
     STORAGE_DIR: path.join(root, 'blobs'),
+    // Isolate TLS as well: a certificate sitting in the developer's ./certs
+    // would otherwise switch this suite to Secure cookies over plain HTTP.
+    CERT_DIR: path.join(root, 'certs'),
+    SSL_ENABLED: 'false',
     APP_KEY: crypto.randomBytes(32).toString('hex'),
     SESSION_SECRET: crypto.randomBytes(32).toString('base64url'),
     REQUIRE_MFA: 'true',

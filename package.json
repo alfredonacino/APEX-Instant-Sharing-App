@@ -11,7 +11,10 @@
     "start": "node server.js",
     "dev": "node --watch server.js",
     "init:admin": "node scripts/create-admin.js",
-    "test": "node --test tests/*.test.js"
+    "test": "node --test tests/*.test.js",
+    "cert:generate": "node scripts/generate-cert.js",
+    "cert:ensure": "node scripts/generate-cert.js --if-missing",
+    "start:https": "SSL_ENABLED=true node server.js"
   },
   "license": "MIT",
   "private": true,

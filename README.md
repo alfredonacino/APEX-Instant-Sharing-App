@@ -67,11 +67,65 @@ in production; everything else has a working default.
 | `MAX_UPLOAD_MB` | `200` | per file |
 | `SESSION_IDLE_MINUTES` / `SESSION_ABSOLUTE_HOURS` | `60` / `12` | idle and hard session limits |
 | `MAX_FAILED_LOGINS` / `LOCKOUT_MINUTES` | `5` / `15` | lockout policy |
-| `COOKIE_SECURE` | on in production | set `false` only when serving plain HTTP |
+| `COOKIE_SECURE` | follows TLS | Secure cookies are only sent over HTTPS, so this tracks `SSL_ENABLED` |
+| `SSL_ENABLED` | on if a key pair is present | see [HTTPS](#https) |
+| `HTTPS_PORT` / `HTTP_REDIRECT` | `3443` / `true` | HTTPS port, and whether `PORT` redirects to it |
 
 `APP_KEY` encrypts stored TOTP secrets **and** keys the audit chain. Rotating
 it invalidates every enrolled authenticator and makes existing audit entries
 unverifiable.
+
+## HTTPS
+
+The app terminates TLS itself, so it needs no reverse proxy and no root.
+
+```bash
+npm run cert:generate     # self-signed, valid 825 days
+npm start                 # a present key pair turns TLS on by itself
+```
+
+```
+listening on https://0.0.0.0:3443
+listening on http://0.0.0.0:3000 (redirects to HTTPS)
+TLS: CN=files.example.lan | self-signed
+     expires Dec  3 12:18:42 2028 (825 days) | SHA-256 44:F9:16:...
+```
+
+With TLS on, the plain-HTTP port becomes a redirect-only listener (308, so a
+POST stays a POST), session and CSRF cookies are marked `Secure`, HSTS is sent,
+and the CSP gains `upgrade-insecure-requests`. The redirect refuses to build a
+URL from a Host header it cannot parse, so it can never become an open
+redirect.
+
+**Certificates.** `npm run cert:generate` puts every name the machine answers
+to into `subjectAltName` - hostname, `localhost`, and each non-internal IPv4
+address - because browsers ignore the legacy CN and reject a certificate with
+no matching SAN, including for a bare IP. For a certificate that is trusted
+without a warning, point the config at a real one:
+
+```bash
+SSL_KEY_PATH=/etc/letsencrypt/live/example.com/privkey.pem
+SSL_CERT_PATH=/etc/letsencrypt/live/example.com/fullchain.pem
+SSL_CA_PATH=                     # only if your CA ships a separate chain
+```
+
+**Renewal without downtime.** Send `SIGHUP` and the new certificate is loaded
+into the running process; existing connections are untouched.
+
+```bash
+kill -HUP $(pgrep -f 'node server.js')     # or: pm2 sendSignal SIGHUP <app>
+```
+
+**Trusting a self-signed certificate.** Browsers warn until you tell them not
+to. Compare the SHA-256 printed at startup, then either accept the warning
+once, or import it - for Chrome on Linux:
+
+```bash
+certutil -d sql:$HOME/.pki/nssdb -A -t "C,," -n "apex-instant-sharing" -i certs/server.crt
+```
+
+A self-signed certificate encrypts the traffic but proves nothing about who is
+on the other end. On a network where that matters, use a real CA.
 
 ## Administration
 

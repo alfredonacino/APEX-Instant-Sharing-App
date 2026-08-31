@@ -22,6 +22,16 @@ NODE_VERSION="${NODE_VERSION:-24.20.0}"
 APP_PORT="${APP_PORT:-3210}"
 HEALTH_PATH="${HEALTH_PATH:-/healthz}"
 
+# Health check target. HEALTH_SCHEME=https makes the check skip certificate
+# verification: it runs on the server against 127.0.0.1 to prove the process is
+# up, not to validate the PKI (and a self-signed cert would fail validation).
+HEALTH_SCHEME="${HEALTH_SCHEME:-https}"
+HEALTH_PORT="${HEALTH_PORT:-3443}"
+
+# Command run on the server after dependencies install, before pm2 starts.
+# Used for one-off preparation such as generating a TLS certificate.
+POST_INSTALL_CMD="${POST_INSTALL_CMD:-npm run cert:ensure}"
+
 # Secrets generated once on the server, then never touched again.
 # Format: NAME:BYTES:ENCODING
 GENERATE_SECRETS="${GENERATE_SECRETS:-APP_KEY:32:hex SESSION_SECRET:48:base64url}"
@@ -95,6 +105,7 @@ rsync "${RSYNC_FLAGS[@]}" \
   --exclude 'data/' \
   --exclude 'storage/' \
   --exclude 'logs/' \
+  --exclude 'certs/' \
   --exclude '*.log' \
   --exclude '.DS_Store' \
   --rsync-path="mkdir -p '${TARGET}' && rsync" \
@@ -138,6 +149,26 @@ if [ ! -f .env ]; then
   chmod 600 .env
 else
   echo ".env already present - left untouched"
+  # New releases may introduce new settings. Keys that are missing get
+  # appended; keys that are already there are never modified, so anything
+  # tuned on the server survives.
+  if [ -f deploy/env.production ]; then
+    added=""
+    while IFS= read -r line; do
+      case "\$line" in ''|'#'*) continue ;; esac
+      key="\${line%%=*}"
+      if ! grep -q "^\${key}=" .env; then
+        printf '%s\n' "\$line" >> .env
+        added="\$added \$key"
+      fi
+    done < deploy/env.production
+    [ -n "\$added" ] && echo "added new settings to .env:\$added" || echo ".env is up to date"
+  fi
+fi
+
+if [ -n "${POST_INSTALL_CMD}" ]; then
+  echo "running post-install: ${POST_INSTALL_CMD}"
+  ${POST_INSTALL_CMD}
 fi
 
 pm2 startOrReload ecosystem.config.cjs --update-env
@@ -156,8 +187,11 @@ REMOTE_DEPLOY
 # ------------------------------------------------------------- verify ------
 say "Health check"
 sleep 4
-if ssh_do "curl -sf --max-time 10 http://127.0.0.1:${APP_PORT}${HEALTH_PATH}"; then
-  printf '\n\033[1;32m==> %s is live at http://%s:%s\033[0m\n' "$APP_NAME" "$DEPLOY_HOST" "$APP_PORT"
+CURL_FLAGS="-sf"
+[ "$HEALTH_SCHEME" = "https" ] && CURL_FLAGS="-sfk"
+
+if ssh_do "curl ${CURL_FLAGS} --max-time 10 ${HEALTH_SCHEME}://127.0.0.1:${HEALTH_PORT}${HEALTH_PATH}"; then
+  printf '\n\033[1;32m==> %s is live at %s://%s:%s\033[0m\n' "$APP_NAME" "$HEALTH_SCHEME" "$DEPLOY_HOST" "$HEALTH_PORT"
 else
   printf '\n\033[1;31m==> Health check failed. Recent logs:\033[0m\n'
   ssh_do "pm2 logs '${APP_NAME}' --lines 40 --nostream" || true

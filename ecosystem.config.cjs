@@ -26,7 +26,7 @@ module.exports = {
       // process on every upload and on every SQLite WAL write.
       watch: true,
       ignore_watch: [
-        'node_modules', '.git', 'data', 'storage', 'logs', 'tests',
+        'node_modules', '.git', 'data', 'storage', 'logs', 'tests', 'certs',
         '\\.env$', '\\.sqlite', '\\.sqlite-wal', '\\.sqlite-shm', '\\.log$',
       ],
       watch_delay: 2000,
