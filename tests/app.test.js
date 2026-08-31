@@ -5,7 +5,7 @@ import { prepareEnv, makeClient } from './helpers.js';
 
 prepareEnv();
 
-const { createApp } = await import('../server.js');
+const { createApp } = await import('../src/app.js');
 const { db } = await import('../src/lib/db.js');
 const { verifyAuditChain } = await import('../src/lib/audit.js');
 
