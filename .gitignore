@@ -2,6 +2,7 @@ node_modules/
 data/
 storage/
 .env
+.env.deploy
 *.log
 .DS_Store
 certs/

@@ -17,7 +17,6 @@
     "start:https": "SSL_ENABLED=true node server.js"
   },
   "license": "MIT",
-  "private": true,
   "dependencies": {
     "express": "^5.2.1",
     "express-rate-limit": "^8.7.0",

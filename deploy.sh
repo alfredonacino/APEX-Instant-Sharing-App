@@ -9,15 +9,43 @@
 # The whole thing is idempotent: run it as often as you like. Everything the
 # running app owns on the server (.env, data/, storage/, logs/) is preserved.
 #
+# Target settings come from the environment, or from an untracked .env.deploy
+# next to this script (see .env.deploy.example). Nothing about a specific
+# server is committed to this repository.
+#
 # Override any of these with environment variables:
 #   DEPLOY_HOST DEPLOY_USER DEPLOY_BASE APP_NAME APP_PORT NODE_VERSION
 #
 set -euo pipefail
 
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Local, untracked deployment settings. Keep your real host and user here.
+if [ -f "${REPO_DIR}/.env.deploy" ]; then
+  set -a
+  # shellcheck disable=SC1091
+  . "${REPO_DIR}/.env.deploy"
+  set +a
+fi
+
 # --------------------------------------------------------------- settings --
-DEPLOY_HOST="${DEPLOY_HOST:-app-server.example.internal}"
-DEPLOY_USER="${DEPLOY_USER:-deploy}"
-DEPLOY_BASE="${DEPLOY_BASE:-/home/deploy}"
+if [ -z "${DEPLOY_HOST:-}" ]; then
+  cat >&2 <<'NOHOST'
+DEPLOY_HOST is not set, so there is no server to deploy to.
+
+Set it for a single run:
+    DEPLOY_HOST=my-server ./deploy.sh
+
+or, better, copy .env.deploy.example to .env.deploy and fill it in once:
+    cp .env.deploy.example .env.deploy
+
+.env.deploy is git-ignored, so your server details stay out of the repository.
+NOHOST
+  exit 2
+fi
+
+DEPLOY_USER="${DEPLOY_USER:-$(id -un)}"
+DEPLOY_BASE="${DEPLOY_BASE:-/home/${DEPLOY_USER}}"
 NODE_VERSION="${NODE_VERSION:-24.20.0}"
 APP_PORT="${APP_PORT:-3210}"
 HEALTH_PATH="${HEALTH_PATH:-/healthz}"
@@ -36,7 +64,6 @@ POST_INSTALL_CMD="${POST_INSTALL_CMD:-npm run cert:ensure}"
 # Format: NAME:BYTES:ENCODING
 GENERATE_SECRETS="${GENERATE_SECRETS:-APP_KEY:32:hex SESSION_SECRET:48:base64url}"
 
-REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$REPO_DIR"
 
 APP_NAME="${APP_NAME:-$(node -p "require('./package.json').name" 2>/dev/null || basename "$REPO_DIR")}"
@@ -102,6 +129,7 @@ rsync "${RSYNC_FLAGS[@]}" \
   --exclude '.git/' \
   --exclude 'node_modules/' \
   --exclude '.env' \
+  --exclude '.env.deploy' \
   --exclude 'data/' \
   --exclude 'storage/' \
   --exclude 'logs/' \

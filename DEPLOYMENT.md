@@ -5,14 +5,27 @@ server, run under pm2, watch enabled, restored on reboot.**
 
 | | |
 |---|---|
-| Server | `app-server.example.internal` (Ubuntu 24.04, `app-server`) |
-| User / base directory | `deploy` / `/home/deploy` |
-| App directory | `/home/deploy/<package.json name>` |
+| Server | `$DEPLOY_HOST` (any Linux host you can reach over SSH) |
+| User / base directory | `$DEPLOY_USER` / `$DEPLOY_BASE` |
+| App directory | `$DEPLOY_BASE/<package.json name>` |
 | Process manager | pm2, process name = `<package.json name>` |
 | Runtime | pinned Node in `~/.local/node-v<version>`, symlinked `~/.local/node-current` |
-| Boot persistence | `pm2 save` + the enabled `pm2-deploy.service` unit |
+| Boot persistence | `pm2 save` + an enabled `pm2-$DEPLOY_USER.service` unit |
 | Watch | on, with every runtime-written path excluded |
 | TLS | terminated by the app on `3443`; `3210` redirects to it |
+
+## Configure the target first
+
+`deploy.sh` has no server baked into it. Tell it where to deploy once:
+
+```bash
+cp .env.deploy.example .env.deploy   # then fill in DEPLOY_HOST and DEPLOY_USER
+```
+
+`.env.deploy` is git-ignored, so your server details stay out of the
+repository. Key-based SSH to that host must already work without a prompt --
+the script connects with `BatchMode=yes`. Any setting can also be given for a
+single run: `DEPLOY_HOST=my-server ./deploy.sh`.
 
 ## Deploying
 
@@ -61,8 +74,8 @@ write. `ecosystem.config.cjs` excludes them, plus `logs/`, `node_modules/` and
 There is no root on the app server, so there is no nginx and nothing can bind
 443. The app terminates TLS itself:
 
-- **https://app-server.example.internal:3443** - the app
-- **http://app-server.example.internal:3210** - redirect-only listener, 308 to the HTTPS URL
+- **https://$DEPLOY_HOST:3443** - the app
+- **http://$DEPLOY_HOST:3210** - redirect-only listener, 308 to the HTTPS URL
 
 `deploy.sh` generates a self-signed certificate into `certs/` on the first
 deploy, with SANs covering the server's hostname and every one of its IPv4
@@ -73,7 +86,7 @@ To switch to a certificate from a real CA, put it on the server and add the
 paths to `.env` (they are never overwritten by a deploy):
 
 ```bash
-ssh deploy@app-server.example.internal
+ssh "$DEPLOY_USER@$DEPLOY_HOST"
 cd apex-instant-sharing-app
 printf 'SSL_KEY_PATH=/path/privkey.pem\nSSL_CERT_PATH=/path/fullchain.pem\n' >> .env
 pm2 restart apex-instant-sharing-app
@@ -99,20 +112,24 @@ belongs to the server, and watching it would restart the app mid-renewal.
 
 Back these three up together; they only make sense as a set.
 
-## First-time server setup (already done here)
+## First-time server setup
 
-`pm2-deploy.service` is enabled, so `pm2 save` is enough. On a fresh
-server, run once:
+`deploy.sh` expects `pm2` to be on the server already (`npm i -g pm2`). For the
+process list to survive a reboot, pm2's systemd unit has to be enabled once per
+server -- this is the one step that needs root:
 
 ```bash
-pm2 startup systemd -u deploy --hp /home/deploy   # prints a sudo command
+pm2 startup systemd -u "$USER" --hp "$HOME"   # prints a sudo command to run
 pm2 save
 ```
+
+Until that unit is enabled, `deploy.sh` finishes normally but prints a reminder
+at the end of each deploy.
 
 ## Rollback
 
 ```bash
-ssh deploy@app-server.example.internal 'pm2 stop apex-instant-sharing-app'
+ssh "$DEPLOY_USER@$DEPLOY_HOST" 'pm2 stop apex-instant-sharing-app'
 git checkout <previous-tag> && ./deploy.sh
 ```
 
@@ -121,5 +138,4 @@ git checkout <previous-tag> && ./deploy.sh
 `deploy.sh` and `ecosystem.config.cjs` are app-agnostic apart from the process
 name and port. Copy both, set `APP_PORT`, adjust `GENERATE_SECRETS` for
 whatever that app needs, and keep the runtime-written directories in
-`ignore_watch` and in the rsync excludes. Master copies live in
-`~/.claude/deploy/`.
+`ignore_watch` and in the rsync excludes.

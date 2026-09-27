@@ -4,11 +4,13 @@
  * locally with `pm2 start ecosystem.config.cjs`.
  */
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 
 // The app needs Node >= 22 for node:sqlite. The server's system Node may be
 // older, so deploy.sh installs a pinned runtime and points pm2 at it.
-const PINNED_NODE = process.env.PM2_NODE_INTERPRETER || '/home/deploy/.local/node-current/bin/node';
+const PINNED_NODE =
+  process.env.PM2_NODE_INTERPRETER || path.join(os.homedir(), '.local', 'node-current', 'bin', 'node');
 const interpreter = fs.existsSync(PINNED_NODE) ? PINNED_NODE : 'node';
 
 module.exports = {
