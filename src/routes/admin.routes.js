@@ -5,7 +5,8 @@ import { audit, verifyAuditChain, AUDIT_ACTIONS } from '../lib/audit.js';
 import { sessionStore } from '../lib/session-store.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
 import * as users from '../services/users.service.js';
-import { storageStats } from '../services/files.service.js';
+import { storageStats, countLiveLinks } from '../services/files.service.js';
+import { SETTING_DEFINITIONS, allSettings, settingsDetail, setSetting } from '../services/settings.service.js';
 import {
   badRequest, conflict, email as parseEmail, oneOf, pageParams,
   password as parsePassword, str,
@@ -19,9 +20,10 @@ adminRouter.get('/stats', (req, res) => {
   res.json({
     storage: storageStats(),
     audit: { entries: chain.entries, intact: chain.ok },
+    publicLinks: { live: countLiveLinks() },
     policy: {
       requireMfa: config.requireMfa,
-      allowSelfRegistration: config.allowSelfRegistration,
+      ...allSettings(),
       adminCanDownloadAll: config.adminCanDownloadAll,
       maxUploadBytes: config.maxUploadBytes,
       sessionIdleMinutes: config.sessionIdleMs / 60000,
@@ -29,6 +31,44 @@ adminRouter.get('/stats', (req, res) => {
       lockoutAfter: config.maxFailedLogins,
     },
   });
+});
+
+// --------------------------------------------------------------- settings --
+// Policy the administrator owns at runtime. Everything here is audited with a
+// before/after, because these switches change who may get into the app and who
+// may reach its files.
+
+adminRouter.get('/settings', (req, res) => {
+  res.json({ settings: settingsDetail() });
+});
+
+adminRouter.patch('/settings', (req, res) => {
+  const body = req.body ?? {};
+  const keys = Object.keys(body).filter((k) => k in SETTING_DEFINITIONS);
+  if (keys.length === 0) {
+    throw badRequest(`Nothing to update - known settings are: ${Object.keys(SETTING_DEFINITIONS).join(', ')}`);
+  }
+
+  const applied = [];
+  for (const key of keys) {
+    const result = setSetting(key, body[key], req.currentUser.id);
+    applied.push(result);
+    if (!result.changed) continue;
+    audit({
+      req, action: 'admin.settings.update', outcome: 'success', objectType: 'setting', objectId: key,
+      objectLabel: SETTING_DEFINITIONS[key].label,
+      details: {
+        setting: key,
+        from: result.from,
+        to: result.to,
+        // Turning public links off silently disables every existing one, which
+        // is worth stating in the record rather than inferring later.
+        ...(key === 'allowPublicLinks' && result.to === false ? { liveLinksDisabled: countLiveLinks() } : {}),
+      },
+    });
+  }
+
+  res.json({ settings: settingsDetail(), applied });
 });
 
 // ------------------------------------------------------------------ users --

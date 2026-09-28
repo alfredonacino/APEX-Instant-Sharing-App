@@ -6,6 +6,7 @@ import { sessionStore } from '../lib/session-store.js';
 import { newSecret, otpauthUri, qrDataUrl, checkToken } from '../lib/totp.js';
 import { encryptSecret, decryptSecret, hashPassword, verifyPassword } from '../lib/crypto.js';
 import * as users from '../services/users.service.js';
+import { getSetting } from '../services/settings.service.js';
 import { STAGE, requireAuth, requireStage, sessionPayload } from '../middleware/auth.js';
 import { loginLimiter, registerLimiter, mfaLimiter } from '../middleware/rate-limit.js';
 import { HttpError, badRequest, forbidden, unauthorized, email as parseEmail, password as parsePassword, str, totpToken } from '../lib/validate.js';
@@ -46,7 +47,8 @@ authRouter.get('/session', (req, res) => {
 // ----------------------------------------------------------------- register
 
 authRouter.post('/register', registerLimiter, async (req, res) => {
-  if (!config.allowSelfRegistration) {
+  // The administrator's stored decision, not the value in .env.
+  if (!getSetting('allowSelfRegistration')) {
     audit({ req, action: 'auth.register', outcome: 'denied', details: { email: req.body?.email, reason: 'self_registration_disabled' } });
     throw forbidden('Self-registration is disabled - ask an administrator for an account');
   }

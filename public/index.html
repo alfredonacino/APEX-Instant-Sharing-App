@@ -111,6 +111,41 @@
 </main>
 
 <!-- ---------------------------------------------------------- main app -->
+<main id="view-public" class="auth" hidden>
+  <div class="auth-card wide">
+    <div class="brand">
+      <span class="brand-mark">A</span>
+      <div>
+        <h1 id="public-app-name">Shared file</h1>
+        <p class="muted small" id="public-shared-by"></p>
+      </div>
+    </div>
+
+    <div id="public-ready" hidden>
+      <div class="filecard">
+        <div class="fileicon" id="public-icon">FILE</div>
+        <div>
+          <div class="filename" id="public-name"></div>
+          <div class="muted small" id="public-description"></div>
+          <div class="filemeta" id="public-meta"></div>
+        </div>
+      </div>
+      <p class="row">
+        <a class="btn primary" id="public-download" href="#">Download</a>
+      </p>
+      <p class="muted small" id="public-note"></p>
+    </div>
+
+    <div id="public-problem" hidden>
+      <h2 id="public-problem-title">This link is not available</h2>
+      <p class="error" id="public-problem-text"></p>
+      <p class="muted small">If you were expecting a file, ask the person who shared it for a new link.</p>
+    </div>
+
+    <p class="muted small" id="public-loading">Checking this link&hellip;</p>
+  </div>
+</main>
+
 <div id="view-app" hidden>
   <header class="topbar">
     <div class="brand small">
@@ -239,6 +274,11 @@
         <input type="search" id="user-search" class="search" placeholder="Search users">
       </div>
       <div id="admin-stats" class="stats"></div>
+      <div class="card" id="admin-policy">
+        <h2>Policy</h2>
+        <p class="muted small">Takes effect immediately, for everyone, and is recorded in the audit trail.</p>
+        <div id="policy-toggles" class="stack"></div>
+      </div>
       <div class="tablewrap"><table class="table" id="users-table"><thead>
         <tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>2FA</th><th>Last sign-in</th><th>Actions</th></tr>
       </thead><tbody></tbody></table></div>
@@ -295,6 +335,28 @@
     <label class="switch">
       <input type="checkbox" id="share-everyone"> Everyone with an account can download this
     </label>
+
+    <div class="linkbox" id="publiclink-box">
+      <label class="switch">
+        <input type="checkbox" id="share-public">
+        <span>Anyone with the link can download this &mdash; <strong>no account needed</strong></span>
+      </label>
+      <p class="muted small" id="publiclink-off" hidden>
+        An administrator has switched public links off for this deployment.
+      </p>
+      <div id="publiclink-detail" hidden>
+        <div class="row">
+          <input type="text" id="publiclink-url" class="search" readonly aria-label="Public link">
+          <button class="btn tiny" type="button" id="publiclink-copy">Copy</button>
+          <button class="btn tiny" type="button" id="publiclink-rotate" title="Replace this link with a new one">New link</button>
+        </div>
+        <div class="grid2">
+          <label>Link expires (optional)<input type="datetime-local" id="publiclink-expiry"></label>
+          <label>Download limit (optional)<input type="number" id="publiclink-max" min="1" max="1000000" placeholder="unlimited"></label>
+        </div>
+        <p class="muted small" id="publiclink-stats"></p>
+      </div>
+    </div>
 
     <div class="stack">
       <input type="search" id="share-search" class="search" placeholder="Search people by name or email">

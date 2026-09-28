@@ -48,6 +48,19 @@ export const mfaLimiter = make({
   keyGenerator: (req) => `${ipKeyGenerator(req.ip)}|${req.session?.userId ?? 'anon'}`,
 });
 
+/**
+ * The public link endpoints are the only ones an anonymous caller can reach, so
+ * they are also the only place a token can be guessed at. The token is 32 random
+ * bytes and unguessable in practice; this caps the noise and the bandwidth a
+ * single address can pull through a shared link.
+ */
+export const publicLinkLimiter = make({
+  name: 'public_link',
+  windowMs: 15 * 60_000,
+  limit: 120,
+  message: 'Too many requests for shared links - try again shortly',
+});
+
 export const uploadLimiter = make({
   name: 'upload',
   windowMs: 60_000,

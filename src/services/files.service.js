@@ -4,7 +4,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { db, nowIso, transaction } from '../lib/db.js';
 import { config } from '../config.js';
-import { publicId } from '../lib/crypto.js';
+import { publicId, randomToken } from '../lib/crypto.js';
 import { forbidden, notFound } from '../lib/validate.js';
 
 const FILE_COLUMNS = `
@@ -41,6 +41,7 @@ export function publicFile(row) {
     deletedAt: row.deleted_at ?? null,
     accessVia: row.access_via ?? null,
     shareCount: row.share_count ?? 0,
+    hasPublicLink: Boolean(row.public_link_token),
     owner: row.owner_public_id
       ? { id: row.owner_public_id, displayName: row.owner_name, email: row.owner_email }
       : null,
@@ -100,7 +101,9 @@ export function getForViewer(pid, viewerId) {
         `SELECT ${FILE_COLUMNS},
                 u.public_id AS owner_public_id, u.display_name AS owner_name, u.email AS owner_email,
                 ${ACCESS_CASE},
-                (SELECT COUNT(*) FROM file_shares s WHERE s.file_id = f.id) AS share_count
+                (SELECT COUNT(*) FROM file_shares s WHERE s.file_id = f.id) AS share_count,
+                (SELECT l.token FROM file_public_links l
+                  WHERE l.file_id = f.id AND l.revoked_at IS NULL) AS public_link_token
            FROM files f JOIN users u ON u.id = f.owner_id
           WHERE f.public_id = :pid`,
       )
@@ -179,7 +182,9 @@ export function listFiles({ viewer, scope = 'all', q = '', limit = 50, offset = 
       SELECT ${FILE_COLUMNS},
              u.public_id AS owner_public_id, u.display_name AS owner_name, u.email AS owner_email,
              ${ACCESS_CASE},
-             (SELECT COUNT(*) FROM file_shares s WHERE s.file_id = f.id) AS share_count
+             (SELECT COUNT(*) FROM file_shares s WHERE s.file_id = f.id) AS share_count,
+             (SELECT l.token FROM file_public_links l
+               WHERE l.file_id = f.id AND l.revoked_at IS NULL) AS public_link_token
         FROM files f JOIN users u ON u.id = f.owner_id
        WHERE ${includeDeleted && adminScope ? '1=1' : 'f.deleted_at IS NULL'}
          AND (:q = '' OR f.original_name LIKE :like ESCAPE '\\' OR f.description LIKE :like ESCAPE '\\'
@@ -261,6 +266,133 @@ export function revokeShare(fileId, userId) {
 
 export function sharedWithUserIds(fileId) {
   return db.prepare('SELECT user_id FROM file_shares WHERE file_id = ?').all(fileId).map((r) => r.user_id);
+}
+
+// ---------------------------------------------------------- public links ---
+// A public link is a capability: whoever holds the token may download that one
+// file without an account. It is therefore long, revocable, optionally expiring
+// and optionally capped by download count - and every use is audited.
+
+export function publicLink(row, { baseUrl = null } = {}) {
+  if (!row) return null;
+  return {
+    token: row.token,
+    url: baseUrl ? `${baseUrl}/p/${row.token}` : `/p/${row.token}`,
+    createdAt: row.created_at,
+    expiresAt: row.expires_at,
+    maxDownloads: row.max_downloads,
+    downloadCount: row.download_count,
+    lastDownloadAt: row.last_download_at,
+    revokedAt: row.revoked_at,
+  };
+}
+
+/** The live link for a file, or null when there is none. */
+export function getLiveLink(fileId) {
+  return db
+    .prepare('SELECT * FROM file_public_links WHERE file_id = ? AND revoked_at IS NULL')
+    .get(fileId) ?? null;
+}
+
+export function listLinkHistory(fileId, limit = 20) {
+  return db
+    .prepare('SELECT * FROM file_public_links WHERE file_id = ? ORDER BY id DESC LIMIT ?')
+    .all(fileId, limit);
+}
+
+/**
+ * Create a link, replacing any existing live one in a single transaction.
+ * Replacing rather than mutating keeps the old token in the history and makes
+ * "rotate" and "create" the same operation.
+ */
+export const createLink = transaction((fileId, actorId, { expiresAt = null, maxDownloads = null } = {}) => {
+  const previous = getLiveLink(fileId);
+  const ts = nowIso();
+  if (previous) {
+    db.prepare('UPDATE file_public_links SET revoked_at = ?, revoked_by = ? WHERE id = ?').run(ts, actorId, previous.id);
+  }
+  const token = randomToken(32);
+  db.prepare(
+    `INSERT INTO file_public_links (file_id, token, created_by, expires_at, max_downloads, created_at)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+  ).run(fileId, token, actorId, expiresAt, maxDownloads, ts);
+  return { link: getLiveLink(fileId), replaced: previous ? previous.token : null };
+});
+
+/**
+ * Change the limits on the live link, keeping the same token. Rotating is a
+ * separate act (createLink): adjusting an expiry should not invalidate a URL
+ * people have already been given.
+ */
+export function updateLink(fileId, { expiresAt, maxDownloads }) {
+  const live = getLiveLink(fileId);
+  if (!live) return null;
+  db.prepare('UPDATE file_public_links SET expires_at = ?, max_downloads = ? WHERE id = ?').run(
+    expiresAt === undefined ? live.expires_at : expiresAt,
+    maxDownloads === undefined ? live.max_downloads : maxDownloads,
+    live.id,
+  );
+  return getLiveLink(fileId);
+}
+
+export function revokeLink(fileId, actorId) {
+  const live = getLiveLink(fileId);
+  if (!live) return null;
+  db.prepare('UPDATE file_public_links SET revoked_at = ?, revoked_by = ? WHERE id = ?').run(nowIso(), actorId, live.id);
+  return live;
+}
+
+/**
+ * Resolve a token to the file behind it, with the reason it is unusable when it
+ * is. Deliberately one query joining files, so a token for a deleted or expired
+ * file is distinguishable in the audit trail without leaking the difference to
+ * the caller.
+ */
+export function resolveLink(token) {
+  const row = db
+    .prepare(
+      `SELECT l.id AS link_id, l.token, l.expires_at AS link_expires_at, l.max_downloads,
+              l.download_count AS link_download_count, l.revoked_at, l.created_by,
+              f.id, f.public_id, f.owner_id, f.original_name, f.stored_name, f.mime_type,
+              f.size_bytes, f.sha256, f.description, f.visibility, f.expires_at, f.deleted_at,
+              f.created_at,
+              u.display_name AS owner_name, u.email AS owner_email
+         FROM file_public_links l
+         JOIN files f ON f.id = l.file_id
+         JOIN users u ON u.id = f.owner_id
+        WHERE l.token = ?`,
+    )
+    .get(String(token));
+  if (!row) return { ok: false, reason: 'unknown_token', row: null };
+
+  const now = Date.now();
+  if (row.revoked_at) return { ok: false, reason: 'link_revoked', row };
+  if (row.deleted_at) return { ok: false, reason: 'file_deleted', row };
+  if (row.link_expires_at && new Date(row.link_expires_at).getTime() <= now) {
+    return { ok: false, reason: 'link_expired', row };
+  }
+  if (row.expires_at && new Date(row.expires_at).getTime() <= now) {
+    return { ok: false, reason: 'file_expired', row };
+  }
+  if (row.max_downloads !== null && row.link_download_count >= row.max_downloads) {
+    return { ok: false, reason: 'download_limit_reached', row };
+  }
+  return { ok: true, reason: null, row };
+}
+
+/** Count a use against both the link and the file, in one transaction. */
+export const countLinkDownload = transaction((linkId, fileId) => {
+  db.prepare(
+    'UPDATE file_public_links SET download_count = download_count + 1, last_download_at = ? WHERE id = ?',
+  ).run(nowIso(), linkId);
+  db.prepare('UPDATE files SET download_count = download_count + 1 WHERE id = ?').run(fileId);
+});
+
+/** Turned off globally: every live link stops working at once. */
+export function countLiveLinks() {
+  return db
+    .prepare('SELECT COUNT(*) AS n FROM file_public_links l JOIN files f ON f.id = l.file_id WHERE l.revoked_at IS NULL AND f.deleted_at IS NULL')
+    .get().n;
 }
 
 // ----------------------------------------------------------------- stats ---

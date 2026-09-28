@@ -15,6 +15,8 @@ export const unauthorized = (message = 'Authentication required') => new HttpErr
 export const forbidden = (message = 'Not permitted') => new HttpError(403, message, { code: 'forbidden' });
 export const notFound = (message = 'Not found') => new HttpError(404, message, { code: 'not_found' });
 export const conflict = (message) => new HttpError(409, message, { code: 'conflict' });
+/** The thing existed and is deliberately no longer available - a revoked or spent link. */
+export const gone = (message, code = 'gone') => new HttpError(410, message, { code });
 export const tooMany = (message) => new HttpError(429, message, { code: 'rate_limited' });
 
 export function str(value, field, { min = 1, max = 255, required = true, trim = true } = {}) {
@@ -75,6 +77,15 @@ export function isoDateOrNull(value, field) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) throw badRequest(`${field} must be a valid date`);
   return date.toISOString();
+}
+
+/** A positive whole number, or null when the caller leaves it unset. */
+export function positiveIntOrNull(value, field, { max = 1_000_000 } = {}) {
+  if (value === undefined || value === null || value === '') return null;
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < 1) throw badRequest(`${field} must be a whole number of 1 or more`);
+  if (n > max) throw badRequest(`${field} must be at most ${max}`);
+  return n;
 }
 
 export function idList(value, field, { max = 200 } = {}) {

@@ -7,7 +7,20 @@ import { initAdmin, loadAudit, loadUsers } from './admin.js';
 
 const app = { session: null, policy: null, ready: false };
 
+/**
+ * /p/<token> is a public download page. It is handled before anything else and
+ * returns early: an anonymous recipient must never be asked to sign in, and the
+ * session endpoint is not even consulted.
+ */
+const PUBLIC_PATH = /^\/p\/([A-Za-z0-9_-]{20,128})\/?$/;
+
 async function boot() {
+  const publicLink = window.location.pathname.match(PUBLIC_PATH);
+  if (publicLink) {
+    const { renderPublicPage } = await import('./public-page.js');
+    return renderPublicPage(publicLink[1]);
+  }
+
   let session;
   try {
     session = await api.get('/api/auth/session');

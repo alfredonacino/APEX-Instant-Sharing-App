@@ -12,6 +12,7 @@ import { authRouter } from './routes/auth.routes.js';
 import { filesRouter } from './routes/files.routes.js';
 import { usersRouter } from './routes/users.routes.js';
 import { adminRouter } from './routes/admin.routes.js';
+import { publicRouter } from './routes/public.routes.js';
 
 export function createApp() {
   const app = express();
@@ -75,6 +76,9 @@ export function createApp() {
   app.get('/api/policy', (req, res) => res.json({ policy: publicPolicy(), csrfToken: req.csrfToken }));
 
   app.use('/api', apiLimiter);
+  // Anonymous by design: a public link must work for someone with no account.
+  // Mounted alongside the authenticated routers, never inside them.
+  app.use('/api/public', publicRouter);
   app.use('/api/auth', authRouter);
   app.use('/api/files', filesRouter);
   app.use('/api/users', usersRouter);

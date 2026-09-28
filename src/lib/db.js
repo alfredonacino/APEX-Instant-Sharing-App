@@ -78,6 +78,37 @@ CREATE TABLE IF NOT EXISTS file_shares (
 );
 CREATE INDEX IF NOT EXISTS idx_shares_user ON file_shares(user_id);
 
+-- Links that let anyone with the URL fetch one file without signing in.
+-- The token is the capability, so it is long and random. Rotating a link means
+-- revoking the current row and inserting a new one: the partial unique index
+-- allows only one live link per file while keeping every revoked one as history.
+CREATE TABLE IF NOT EXISTS file_public_links (
+  id               INTEGER PRIMARY KEY AUTOINCREMENT,
+  file_id          INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+  token            TEXT    NOT NULL UNIQUE,
+  created_by       INTEGER NOT NULL REFERENCES users(id),
+  expires_at       TEXT,
+  max_downloads    INTEGER,
+  download_count   INTEGER NOT NULL DEFAULT 0,
+  last_download_at TEXT,
+  revoked_at       TEXT,
+  revoked_by       INTEGER REFERENCES users(id),
+  created_at       TEXT    NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_public_link_live ON file_public_links(file_id) WHERE revoked_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_public_link_file ON file_public_links(file_id, id DESC);
+
+-- ------------------------------------------------------------- settings ----
+-- Policy an administrator can change while the app is running. The environment
+-- supplies the initial value; once a row exists here it wins, so a restart
+-- never silently reverts a decision made in the admin screen.
+CREATE TABLE IF NOT EXISTS app_settings (
+  key        TEXT PRIMARY KEY,
+  value      TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  updated_by INTEGER REFERENCES users(id)
+);
+
 -- ---------------------------------------------------------------- sessions --
 CREATE TABLE IF NOT EXISTS sessions (
   sid        TEXT    PRIMARY KEY,

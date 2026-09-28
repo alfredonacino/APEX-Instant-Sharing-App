@@ -9,8 +9,11 @@ import { requireAuth } from '../middleware/auth.js';
 import { uploadLimiter } from '../middleware/rate-limit.js';
 import * as filesService from '../services/files.service.js';
 import * as users from '../services/users.service.js';
+import { getSetting } from '../services/settings.service.js';
+import { baseUrlFor } from '../lib/urls.js';
 import {
-  badRequest, forbidden, notFound, idList, isoDateOrNull, oneOf, pageParams, safeFilename, str,
+  badRequest, conflict, forbidden, notFound, idList, isoDateOrNull, oneOf, pageParams,
+  positiveIntOrNull, safeFilename, str,
 } from '../lib/validate.js';
 
 export const filesRouter = Router();
@@ -144,10 +147,13 @@ filesRouter.get('/:id', (req, res) => {
     throw notFound('File not found');
   }
   const isManager = row.owner_id === req.currentUser.id || req.currentUser.role === 'admin';
+  const live = isManager ? filesService.getLiveLink(row.id) : null;
   res.json({
     file: filesService.publicFile(row),
     access,
     shares: isManager ? filesService.listShares(row.id) : undefined,
+    publicLink: live ? filesService.publicLink(live, { baseUrl: baseUrlFor(req) }) : null,
+    publicLinksAllowed: isManager ? getSetting('allowPublicLinks') : undefined,
   });
 });
 
@@ -278,6 +284,72 @@ filesRouter.delete('/:id/shares/:userId', (req, res) => {
     details: { recipient: recipient.email, adminOverride },
   });
   res.json({ ok: true, shares: filesService.listShares(row.id) });
+});
+
+// ----------------------------------------------------------- public links --
+// A link makes one file reachable without an account, so only the owner (or an
+// administrator) may mint one, the administrator can switch the whole feature
+// off, and both minting and revoking are audited.
+
+filesRouter.post('/:id/link', (req, res) => {
+  if (!getSetting('allowPublicLinks')) {
+    const row = filesService.requireForViewer(req.params.id, req.currentUser.id);
+    audit({
+      req, action: 'share.link.create', outcome: 'denied', objectType: 'file',
+      objectId: row.public_id, objectLabel: row.original_name,
+      details: { reason: 'public_links_disabled' },
+    });
+    throw forbidden('Public links are disabled on this deployment');
+  }
+
+  const { row, adminOverride } = requireManageable(req);
+  const expiresAt = isoDateOrNull(req.body?.expiresAt, 'Link expiry');
+  const maxDownloads = positiveIntOrNull(req.body?.maxDownloads, 'Download limit');
+
+  // A link outliving the file it points at would just 404; say so plainly.
+  if (row.expires_at && expiresAt && new Date(expiresAt) > new Date(row.expires_at)) {
+    throw conflict('The link would outlive the file - the file itself expires ' + row.expires_at);
+  }
+
+  const { link, replaced } = filesService.createLink(row.id, req.currentUser.id, { expiresAt, maxDownloads });
+  audit({
+    req, action: 'share.link.create', outcome: 'success', objectType: 'file',
+    objectId: row.public_id, objectLabel: row.original_name, targetUserId: row.owner_id,
+    details: { expiresAt, maxDownloads, rotated: Boolean(replaced), adminOverride },
+  });
+
+  res.status(201).json({ publicLink: filesService.publicLink(link, { baseUrl: baseUrlFor(req) }) });
+});
+
+filesRouter.patch('/:id/link', (req, res) => {
+  const { row, adminOverride } = requireManageable(req);
+  const changes = {};
+  if (req.body?.expiresAt !== undefined) changes.expiresAt = isoDateOrNull(req.body.expiresAt, 'Link expiry');
+  if (req.body?.maxDownloads !== undefined) changes.maxDownloads = positiveIntOrNull(req.body.maxDownloads, 'Download limit');
+  if (Object.keys(changes).length === 0) throw badRequest('Nothing to update');
+
+  const updated = filesService.updateLink(row.id, changes);
+  if (!updated) throw notFound('This file has no public link');
+
+  audit({
+    req, action: 'share.link.create', outcome: 'success', objectType: 'file',
+    objectId: row.public_id, objectLabel: row.original_name, targetUserId: row.owner_id,
+    details: { operation: 'update', ...changes, rotated: false, adminOverride },
+  });
+  res.json({ publicLink: filesService.publicLink(updated, { baseUrl: baseUrlFor(req) }) });
+});
+
+filesRouter.delete('/:id/link', (req, res) => {
+  const { row, adminOverride } = requireManageable(req);
+  const revoked = filesService.revokeLink(row.id, req.currentUser.id);
+  if (!revoked) throw notFound('This file has no public link');
+
+  audit({
+    req, action: 'share.link.revoke', outcome: 'success', objectType: 'file',
+    objectId: row.public_id, objectLabel: row.original_name, targetUserId: row.owner_id,
+    details: { downloads: revoked.download_count, createdAt: revoked.created_at, adminOverride },
+  });
+  res.json({ ok: true, publicLink: null });
 });
 
 /** Who did what with this file - visible to the owner and to administrators. */

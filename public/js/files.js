@@ -17,6 +17,7 @@ const state = {
   queue: [],
   recipients: new Map(),   // publicId -> user (upload picker)
   dialogFile: null,
+  dialogLink: null,        // the live public link for dialogFile, if any
 };
 
 let debounce;
@@ -94,6 +95,7 @@ function tagsFor(file) {
   const mine = file.owner?.id === state.user.id;
   if (file.deletedAt) tags.push(h('span', { class: 'tag deleted' }, 'deleted'));
   if (file.visibility === 'everyone') tags.push(h('span', { class: 'tag everyone' }, 'everyone'));
+  if (file.hasPublicLink) tags.push(h('span', { class: 'tag public', title: 'Anyone holding the link can download this, without an account' }, 'public link'));
   if (mine && file.shareCount > 0) tags.push(h('span', { class: 'tag shared' }, `${file.shareCount} recipient${file.shareCount === 1 ? '' : 's'}`));
   if (!mine && file.accessVia === 'share') tags.push(h('span', { class: 'tag shared' }, 'shared with you'));
   if (!mine && file.accessVia === 'admin_override') tags.push(h('span', { class: 'tag' }, 'admin view'));
@@ -305,6 +307,7 @@ async function submitUpload(event) {
 // ----------------------------------------------------------- share dialog --
 
 function initShareDialog() {
+  initPublicLink();
   let timer;
   $('#share-search').addEventListener('input', (event) => {
     clearTimeout(timer);
@@ -353,7 +356,9 @@ export async function openShareDialog(file) {
 async function refreshShares() {
   const list = clear($('#share-current'));
   try {
-    const { shares = [] } = await api.get(`/api/files/${encodeURIComponent(state.dialogFile.id)}`);
+    const detail = await api.get(`/api/files/${encodeURIComponent(state.dialogFile.id)}`);
+    renderPublicLink(detail);
+    const { shares = [] } = detail;
     if (shares.length === 0) {
       list.append(h('li', { class: 'muted' }, 'Nobody yet.'));
       return;
@@ -370,6 +375,102 @@ async function refreshShares() {
   } catch (error) {
     list.append(h('li', { class: 'error' }, error.message));
   }
+}
+
+// ----------------------------------------------------------- public links --
+
+/** Paint the public-link controls from a file-detail response. */
+function renderPublicLink(detail) {
+  const allowed = detail.publicLinksAllowed !== false;
+  const link = detail.publicLink ?? null;
+  state.dialogLink = link;
+
+  show($('#publiclink-off'), !allowed);
+  $('#share-public').disabled = !allowed;
+  $('#share-public').checked = Boolean(link);
+  show($('#publiclink-detail'), Boolean(link));
+  if (!link) return;
+
+  $('#publiclink-url').value = link.url;
+  $('#publiclink-expiry').value = link.expiresAt ? new Date(link.expiresAt).toISOString().slice(0, 16) : '';
+  $('#publiclink-max').value = link.maxDownloads ?? '';
+
+  const parts = [`created ${formatDate(link.createdAt, { short: true })}`];
+  parts.push(`${link.downloadCount} download${link.downloadCount === 1 ? '' : 's'}`);
+  if (link.lastDownloadAt) parts.push(`last ${timeAgo(link.lastDownloadAt)}`);
+  if (link.maxDownloads) parts.push(`limit ${link.maxDownloads}`);
+  $('#publiclink-stats').textContent = parts.join(' · ');
+}
+
+function initPublicLink() {
+  const fileId = () => encodeURIComponent(state.dialogFile.id);
+
+  $('#share-public').addEventListener('change', async (event) => {
+    const wantLink = event.target.checked;
+    try {
+      if (wantLink) {
+        await api.post(`/api/files/${fileId()}/link`, {
+          expiresAt: localToIso($('#publiclink-expiry').value),
+          maxDownloads: Number($('#publiclink-max').value) || null,
+        });
+        toast('Public link created - anyone holding it can download this file', 'success');
+      } else {
+        await api.del(`/api/files/${fileId()}/link`);
+        toast('Public link turned off', 'success');
+      }
+      await refreshShares();
+      await refreshDialogActivity();
+      loadFiles();
+    } catch (error) {
+      event.target.checked = !wantLink;
+      toast(error.message, 'error');
+    }
+  });
+
+  $('#publiclink-copy').addEventListener('click', async () => {
+    const field = $('#publiclink-url');
+    try {
+      // Only available in a secure context; fall back to a selection the
+      // recipient can copy by hand over plain HTTP.
+      await navigator.clipboard.writeText(field.value);
+      toast('Link copied', 'success');
+    } catch {
+      field.select();
+      toast('Press Ctrl+C to copy the selected link', 'info');
+    }
+  });
+
+  $('#publiclink-rotate').addEventListener('click', async () => {
+    if (!confirmAction('Replace this link with a new one? The current URL stops working immediately.')) return;
+    try {
+      await api.post(`/api/files/${fileId()}/link`, {
+        expiresAt: localToIso($('#publiclink-expiry').value),
+        maxDownloads: Number($('#publiclink-max').value) || null,
+      });
+      toast('New link created - the old one no longer works', 'success');
+      await refreshShares();
+      await refreshDialogActivity();
+    } catch (error) {
+      toast(error.message, 'error');
+    }
+  });
+
+  // Changing a limit keeps the same URL, so links already handed out survive.
+  const updateLimits = async () => {
+    if (!state.dialogLink) return;
+    try {
+      await api.patch(`/api/files/${fileId()}/link`, {
+        expiresAt: localToIso($('#publiclink-expiry').value),
+        maxDownloads: Number($('#publiclink-max').value) || null,
+      });
+      toast('Link updated', 'success');
+      await refreshShares();
+    } catch (error) {
+      toast(error.message, 'error');
+    }
+  };
+  $('#publiclink-expiry').addEventListener('change', updateLimits);
+  $('#publiclink-max').addEventListener('change', updateLimits);
 }
 
 async function grantShare(person) {

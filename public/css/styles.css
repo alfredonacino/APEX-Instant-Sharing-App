@@ -152,6 +152,7 @@ details.card summary { cursor: pointer; margin-bottom: .6rem; }
 .tag.shared { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 35%, var(--border)); }
 .tag.expiring { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 35%, var(--border)); }
 .tag.deleted { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 35%, var(--border)); }
+.tag.public { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 55%, var(--border)); background: color-mix(in srgb, var(--warn) 10%, var(--surface-2)); }
 .fileactions { display: flex; gap: .4rem; flex-wrap: wrap; justify-content: flex-end; }
 .empty { text-align: center; color: var(--muted); padding: 3rem 1rem; border: 1px dashed var(--border); border-radius: var(--radius); }
 
@@ -200,6 +201,19 @@ progress { width: 200px; height: 8px; }
 .dialog-inner { padding: 1.3rem; display: grid; gap: .6rem; }
 .switch { display: flex; align-items: center; gap: .5rem; font-weight: 500; background: var(--surface-2); padding: .6rem .8rem; border-radius: 9px; }
 .switch input { width: auto; }
+/* Public link: visually set apart, because it is the only share that works
+   without an account. */
+.linkbox { border: 1px solid color-mix(in srgb, var(--warn) 40%, var(--border)); border-radius: 10px; padding: .7rem; display: grid; gap: .6rem; }
+.linkbox .switch { background: color-mix(in srgb, var(--warn) 9%, var(--surface-2)); }
+#publiclink-detail { display: grid; gap: .6rem; }
+#publiclink-url { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .82rem; }
+.btn.is-disabled, a.btn[aria-disabled="true"] { opacity: .5; pointer-events: none; }
+
+/* Admin policy switches */
+.policyrow { display: grid; gap: .25rem; padding-bottom: .6rem; border-bottom: 1px solid var(--border); }
+.policyrow:last-child { border-bottom: 0; padding-bottom: 0; }
+.policyrow p { margin: 0; }
+
 .sharelist { list-style: none; padding: 0; margin: 0; display: grid; gap: .35rem; }
 .sharelist li { display: flex; justify-content: space-between; align-items: center; gap: .6rem; padding: .4rem .6rem; background: var(--surface-2); border-radius: 8px; font-size: .9rem; }
 

@@ -104,8 +104,16 @@ export const config = {
   sessionSecret: secret('SESSION_SECRET', env.SESSION_SECRET, 48, 'base64url', dataDir),
 
   requireMfa: bool(env.REQUIRE_MFA, true),
+  // Initial values only: both are administrator-editable at runtime and the
+  // stored decision then wins. See src/services/settings.service.js.
   allowSelfRegistration: bool(env.ALLOW_SELF_REGISTRATION, true),
+  allowPublicLinks: bool(env.ALLOW_PUBLIC_LINKS, true),
   adminCanDownloadAll: bool(env.ADMIN_CAN_DOWNLOAD_ALL, false),
+
+  // Origin used when the app prints an absolute URL for itself, such as a
+  // public share link. Unset means "derive it from the request", which is
+  // correct behind a proxy that preserves Host and sets X-Forwarded-Proto.
+  publicBaseUrl: (env.PUBLIC_BASE_URL || '').replace(/\/+$/, '') || null,
 
   maxUploadBytes: int(env.MAX_UPLOAD_MB, 200) * 1024 * 1024,
   maxFilesPerUpload: int(env.MAX_FILES_PER_UPLOAD, 10),

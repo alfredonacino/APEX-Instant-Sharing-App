@@ -1,6 +1,7 @@
 import { config } from '../config.js';
 import { audit } from '../lib/audit.js';
 import { findById, publicUser, isLocked } from '../services/users.service.js';
+import { getSetting } from '../services/settings.service.js';
 import { HttpError, forbidden, unauthorized } from '../lib/validate.js';
 
 export const STAGE = {
@@ -83,7 +84,10 @@ export function publicPolicy() {
   return {
     appName: config.appName,
     requireMfa: config.requireMfa,
-    allowSelfRegistration: config.allowSelfRegistration,
+    // Administrator-controlled at runtime, so read it rather than trusting the
+    // value the process started with.
+    allowSelfRegistration: getSetting('allowSelfRegistration'),
+    allowPublicLinks: getSetting('allowPublicLinks'),
     maxUploadBytes: config.maxUploadBytes,
     maxFilesPerUpload: config.maxFilesPerUpload,
     passwordMinLength: config.passwordMinLength,

@@ -32,10 +32,55 @@ export function initAdmin({ user }) {
   $('#audit-verify').addEventListener('click', verifyChain);
 }
 
+// ----------------------------------------------------------------- policy --
+
+/**
+ * Runtime policy switches. Each one is rendered from the server's own
+ * description of it, so adding a setting server-side needs no change here.
+ */
+export async function loadPolicy() {
+  const box = clear($('#policy-toggles'));
+  let settings;
+  try {
+    ({ settings } = await api.get('/api/admin/settings'));
+  } catch (error) {
+    box.append(h('p', { class: 'error' }, error.message));
+    return;
+  }
+
+  for (const setting of settings) {
+    const input = h('input', {
+      type: 'checkbox',
+      checked: setting.value === true,
+      onchange: (event) => applySetting(setting, event.target),
+    });
+    box.append(h('div', { class: 'policyrow' },
+      h('label', { class: 'switch' }, input, h('span', {}, setting.label)),
+      h('p', { class: 'muted small' }, setting.help),
+      h('p', { class: 'muted small' },
+        setting.source === 'admin'
+          ? `Set here${setting.updatedAt ? ` on ${formatDate(setting.updatedAt, { short: true })}` : ''}. Deployment default: ${setting.envDefault ? 'on' : 'off'}.`
+          : 'Currently the deployment default, from the environment.')));
+  }
+}
+
+async function applySetting(setting, input) {
+  const value = input.checked;
+  try {
+    await api.patch('/api/admin/settings', { [setting.key]: value });
+    toast(`${setting.label}: ${value ? 'on' : 'off'}`, 'success');
+    await loadPolicy();
+    await loadStats();
+  } catch (error) {
+    input.checked = !value;
+    toast(error.message, 'error');
+  }
+}
+
 // ------------------------------------------------------------------ users --
 
 export async function loadUsers() {
-  await loadStats();
+  await Promise.all([loadStats(), loadPolicy()]);
   const body = clear($('#users-table').tBodies[0]);
   try {
     const { users } = await api.get(`/api/admin/users?${qs({ q: state.userQuery })}`);
@@ -140,7 +185,7 @@ async function createUser(event) {
 
 async function loadStats() {
   try {
-    const { storage, audit, policy } = await api.get('/api/admin/stats');
+    const { storage, audit, policy, publicLinks } = await api.get('/api/admin/stats');
     const box = clear($('#admin-stats'));
     const stat = (value, label) => h('div', { class: 'stat' }, h('b', {}, String(value)), h('span', {}, label));
     box.append(
@@ -150,6 +195,7 @@ async function loadStats() {
       stat(formatBytes(storage.bytes), 'on disk'),
       stat(storage.shares, 'direct shares'),
       stat(storage.sharedWithEveryone, 'shared with all'),
+      stat(publicLinks?.live ?? 0, 'live public links'),
       stat(storage.downloads, 'downloads'),
       stat(audit.entries, `audit entries${audit.intact ? '' : ' ⚠'}`),
     );
